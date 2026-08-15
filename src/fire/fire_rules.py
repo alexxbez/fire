@@ -83,15 +83,3 @@ def flashover(board: Board, pos: tuple[int, int]) -> None:
             if nxt is not None and nxt not in visited:
                 visited.add(nxt)
                 stack.append(nxt)
-
-def replenish_poi(board: Board, rng: np.random.Generator, target_count: int = 3) -> None:
-    # does not handle if a false alarm is in the space of a firefighter
-    current = sum(
-        1 for _, data in board.G.nodes(data=True) if data["state"] == CellState.POI
-    )
-    while current < target_count:
-        pos = roll_target(board, rng)
-        if board.get_state(pos) in (CellState.FIRE, CellState.SMOKE, CellState.POI):
-            continue
-        board.set_state(pos, CellState.POI)
-        current += 1
