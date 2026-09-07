@@ -2,6 +2,7 @@ from mesa import Model
 
 from .agents import Firefighter
 from .board import INITIAL_POI_POSITIONS, PoiState, create_board
+from .data_collector import FireDataCollector
 from .fire_rules import FireEvent, advance_fire, replenish_poi
 
 # Conteos del "Family Game Setup" (Reto AD 2026): estos pools son lo que
@@ -14,6 +15,15 @@ POI_TARGET_ON_BOARD = 3
 VICTIMS_TO_WIN = 7
 VICTIMS_LOST_TO_LOSE = 4
 COLLAPSE_DAMAGE = 24
+
+# Las zonas de curación: la celda exterior justo frente a cada una de las
+# 4 puertas exteriores del edificio (ver `create_board` en board.py).
+HEALING_ZONES = [
+    (0, 6),  # arriba, frente a la puerta de (1,6)
+    (3, 0),  # izquierda, frente a la puerta de (3,1)
+    (4, 9),  # derecha, frente a la puerta de (4,8)
+    (7, 3),  # abajo, frente a la puerta de (6,3)
+]
 
 
 class FirefighterModel(Model):
@@ -58,6 +68,8 @@ class FirefighterModel(Model):
 
         self.firefighters: list[Firefighter] = []
         self._spawn_firefighters()
+
+        self.collector = FireDataCollector()
 
     # ---- preparación de la partida -----------------------------------------
 
@@ -145,14 +157,16 @@ class FirefighterModel(Model):
         firefighter = self.firefighters[self.turn % len(self.firefighters)]
         firefighter.take_turn()
 
+        fire_event = None
         if self.status == "in_progress":
-            event = advance_fire(self.board, self.rng, on_damage=self.register_damage)
-            self._apply_fire_event(event)
+            fire_event = advance_fire(self.board, self.rng, on_damage=self.register_damage)
+            self._apply_fire_event(fire_event)
 
         if self.status == "in_progress":
             firefighter_positions = {f.pos for f in self.firefighters}
             replenish_poi(self.board, self.rng, self._draw_poi_kind, firefighter_positions, POI_TARGET_ON_BOARD)
 
+        self.collector.collect(self, fire_event)
         self.turn += 1
 
     def run(self, max_turns: int = 1000) -> str:
@@ -193,29 +207,23 @@ class FirefighterModel(Model):
 
     def _knock_down(self, firefighter: Firefighter) -> None:
         """Derriba a un bombero: si estaba cargando una víctima, esa
-        víctima se pierde; el bombero queda 'noqueado' (pierde su próximo
-        turno) y se manda a la celda exterior más cercana a recuperarse."""
+        víctima se pierde. NO pierde su próximo turno: solo se
+        teletransporta a la zona de curación más cercana (frente a una
+        puerta exterior) y sigue su camino."""
         if firefighter.carrying:
             self._lose_victim()
             firefighter.carrying = False
         firefighter.knocked_down = True
-        # Las reglas mandan al bombero derribado al Parking Spot de
-        # Ambulancia más cercano; los tableros del Family game no modelan
-        # esos espacios de vehículo, así que la celda exterior más cercana
-        # (distancia en línea recta) hace las veces de reemplazo.
-        firefighter.pos = self._nearest_outside_space(firefighter.pos)
+        firefighter.pos = self._nearest_healing_zone(firefighter.pos)  # type: ignore[arg-type]
 
-    def _nearest_outside_space(self, pos: tuple[int, int]) -> tuple[int, int]:
-        """Busca la celda exterior (fuera del edificio) más cercana a
-        `pos` en línea recta ('como vuela el cuervo', según las reglas)."""
+    def _nearest_healing_zone(self, pos: tuple[int, int]) -> tuple[int, int]:
+        """La zona de curación más cercana a `pos` en distancia
+        Manhattan (ignorando paredes y obstáculos)."""
         row, col = pos
-        candidates = [
-            (r, c)
-            for r in range(self.board.height)
-            for c in range(self.board.width)
-            if self.board.is_outside((r, c))
-        ]
-        return min(candidates, key=lambda p: (p[0] - row) ** 2 + (p[1] - col) ** 2)
+        return min(
+            HEALING_ZONES,
+            key=lambda zone: abs(zone[0] - row) + abs(zone[1] - col),
+        )
 
     def _check_end_conditions(self) -> None:
         """Revisa si ya se cumplió alguna condición de fin de partida:

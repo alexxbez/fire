@@ -31,6 +31,9 @@ class Firefighter(Agent):
         self.saved_ap = 0
         self.carrying = False
         self.knocked_down = False
+        self.action_summary: list[str] = []
+        self.ap_spent: int = 0
+        self.turn_start_pos: tuple[int, int] = pos
 
     @property
     def board(self) -> Board:
@@ -50,6 +53,7 @@ class Firefighter(Agent):
         if self.ap < cost:
             return False
         self.ap -= cost
+        self.ap_spent += cost
         return True
 
     def _direction_to(self, target: tuple[int, int]) -> Direction | None:
@@ -173,17 +177,26 @@ class Firefighter(Agent):
 
         old_pos = self.pos
         self.pos = target
+        self.action_summary.append(f"move:{direction.name}")
 
         if carrying_now:
             self.board.move_victim(old_pos, target)
             self.carrying = True
+            # Si otro bombero estaba parado en la misma celda de donde se
+            # acaba de levantar a la víctima, su bandera `carrying` tendría
+            # que haber quedado obsoleta: la víctima solo puede ir con uno.
+            for other in self.model.firefighters:
+                if other is not self and other.pos == old_pos:
+                    other.carrying = False
             if self.board.is_outside(target):
                 self.model.rescue_victim(target)
                 self.carrying = False
+                self.action_summary.append("rescue")
         elif self.board.has_poi(target):
             poi = self.board.poi_at(target)
             if not poi.revealed:
                 kind = self.board.reveal_poi(target)
+                self.action_summary.append(f"reveal:{kind.name}")
                 if kind == PoiState.FALSE:
                     self.model.identify_false_alarm(target)
         return True
@@ -198,6 +211,7 @@ class Firefighter(Agent):
             return False
         new_state = WallState.DOOR_CLOSE if wall == WallState.DOOR_OPEN else WallState.DOOR_OPEN
         self.board.set_wall(self.pos, direction, new_state)
+        self.action_summary.append(f"door:{direction.name}")
         return True
 
     def extinguish(self, direction: Direction | None = None) -> bool:
@@ -213,11 +227,13 @@ class Firefighter(Agent):
             if not self._spend(EXTINGUISH_SMOKE_COST):
                 return False
             self.board.set_state(target, CellState.CLEAR)
+            self.action_summary.append(f"extinguish:SMOKE@{target}")
             return True
         if state == CellState.FIRE:
             if not self._spend(EXTINGUISH_FIRE_COST):
                 return False
             self.board.set_state(target, CellState.CLEAR)
+            self.action_summary.append(f"extinguish:FIRE@{target}")
             return True
         return False
 
@@ -239,6 +255,7 @@ class Firefighter(Agent):
         new_state = WallState.CLEAR if wall == WallState.DAMAGED_WALL else WallState.DAMAGED_WALL
         self.board.set_wall(self.pos, direction, new_state)
         self.model.register_damage(1)
+        self.action_summary.append(f"chop:{direction.name}")
         return True
 
     # ---- turno -----------------------------------------------------------
@@ -251,9 +268,12 @@ class Firefighter(Agent):
         próximo turno."""
         if self.model.status != "in_progress":
             return
-        if self.knocked_down:
-            self.knocked_down = False  # este turno se lo pasa recuperándose, según las reglas
-            return
+
+        self.knocked_down = False  # ser derribado no cuesta turno: solo se teletransporta
+
+        self.action_summary = []
+        self.ap_spent = 0
+        self.turn_start_pos = self.pos  # type: ignore[assignment]
 
         self.ap = STARTING_AP + self.saved_ap
         self.saved_ap = 0
@@ -291,7 +311,8 @@ class Firefighter(Agent):
 
             poi_here = self.board.poi_at(self.pos)
             if poi_here is not None and not poi_here.revealed:
-                self.board.reveal_poi(self.pos)  # revelar un POI cuesta 0 AP
+                kind = self.board.reveal_poi(self.pos)  # revelar un POI cuesta 0 AP
+                self.action_summary.append(f"reveal:{kind.name}")
                 poi_here = self.board.poi_at(self.pos)  # desaparece si era falsa alarma
                 if poi_here is None:
                     self.model.identify_false_alarm(self.pos)

@@ -73,7 +73,20 @@ def advance_fire(
             pass
 
     flashover(board, pos, event)
+    _clear_outside_cells(board)
     return event
+
+
+def _clear_outside_cells(board: Board):
+    """Limpia cualquier celda exterior (fuera del edificio) que haya
+    quedado con Fuego o Humo (por ejemplo, por una onda de choque o
+    flashover que cruza una puerta exterior). Las celdas de afuera
+    siempre deben permanecer Despejadas."""
+    for row in range(board.height):
+        for col in range(board.width):
+            pos = (row, col)
+            if board.is_outside(pos) and board.get_state(pos) in (CellState.FIRE, CellState.SMOKE):
+                board.set_state(pos, CellState.CLEAR)
 
 
 def explosion(board: Board, pos: tuple[int, int], event: FireEvent, on_damage: Callable[[], bool] | None = None):
@@ -137,7 +150,7 @@ def resolve_shockwave(
         if state == CellState.SMOKE:
             _ignite(board, nxt, event)
             return True
-        _ignite(board, nxt, event)
+        board.set_state(nxt, CellState.SMOKE)
         return True
 
 
