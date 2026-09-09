@@ -23,7 +23,7 @@ HEALING_ZONES = [
 
 class FirefighterModel(Model):
 
-    def __init__(self):
+    def __init__(self, agent_cls=None):
         super().__init__()
 
         self.board = create_board()
@@ -43,7 +43,7 @@ class FirefighterModel(Model):
         self.status = "in_progress"
 
         self.firefighters: list[Firefighter] = []
-        self._spawn_firefighters()
+        self._spawn_firefighters(agent_cls or Firefighter)
 
         self._assign_victims()
         self._assign_fire_targets()
@@ -52,7 +52,7 @@ class FirefighterModel(Model):
 
     # ---- preparation --------------------------------------------------
 
-    def _spawn_firefighters(self) -> None:
+    def _spawn_firefighters(self, agent_cls=Firefighter) -> None:
         """Coloca 6 bomberos afuera: 2 abajo, 2 derecha, 2 arriba."""
         positions = [
             (7, 3), (7, 4),    # abajo, frente a la puerta de (6,3)
@@ -60,7 +60,7 @@ class FirefighterModel(Model):
             (0, 5), (0, 6),    # arriba, frente a la puerta de (1,6)
         ]
         for i, pos in enumerate(positions):
-            ff = Firefighter(self, pos)
+            ff = agent_cls(self, pos)
             ff.role = SUPPRESSION_ROLE
             self.firefighters.append(ff)
 

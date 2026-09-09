@@ -12,13 +12,14 @@ from __future__ import annotations
 from flask import Flask, jsonify, request
 
 from fire.model import FirefighterModel
+from fire.random_agent import RandomFirefighter
 
 app = Flask(__name__)
 
 
-def _make_model(seed: int | None) -> FirefighterModel:
+def _make_model(seed: int | None, agent_cls=None) -> FirefighterModel:
     if seed is None:
-        return FirefighterModel()
+        return FirefighterModel(agent_cls=agent_cls)
     import numpy as np
 
     from fire.board import PoiState
@@ -36,7 +37,7 @@ def _make_model(seed: int | None) -> FirefighterModel:
     orig_draw = FirefighterModel._draw_poi_kind
     FirefighterModel._draw_poi_kind = draw
     try:
-        model = FirefighterModel()
+        model = FirefighterModel(agent_cls=agent_cls)
     finally:
         FirefighterModel._draw_poi_kind = orig_draw
     model.rng = np.random.default_rng(seed)
@@ -47,6 +48,14 @@ def _make_model(seed: int | None) -> FirefighterModel:
 def run_sim():
     seed = request.args.get("seed", type=int, default=None)
     model = _make_model(seed)
+    model.run()
+    return jsonify(model.collector.snapshots)
+
+
+@app.get("/run-sim-rand")
+def run_sim_rand():
+    seed = request.args.get("seed", type=int, default=None)
+    model = _make_model(seed, agent_cls=RandomFirefighter)
     model.run()
     return jsonify(model.collector.snapshots)
 
