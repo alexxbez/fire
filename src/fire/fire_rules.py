@@ -65,14 +65,16 @@ def advance_fire(
     match state:
         case CellState.CLEAR:
             board.set_state(pos, CellState.SMOKE)
+            smoke_flashover(board, pos, event)
         case CellState.SMOKE:
             _ignite(board, pos, event)
+            flashover(board, pos, event)
         case CellState.FIRE:
             explosion(board, pos, event, on_damage)
+            flashover(board, pos, event)
         case _:
             pass
 
-    flashover(board, pos, event)
     _clear_outside_cells(board)
     return event
 
@@ -154,6 +156,20 @@ def resolve_shockwave(
         return True
 
 
+def smoke_flashover(board: Board, pos: tuple[int, int], event: FireEvent):
+    """Variante para humo recién colocado (tirada sobre celda vacía):
+    si ninguna celda adyacente y alcanzable está en llamas, el humo se
+    queda quieto esa tirada; si sí hay fuego pegado, hace el flashover
+    normal."""
+    for direction in Direction:
+        if not board.is_passable(pos, direction):
+            continue
+        nxt = board.neighbor(pos, direction)
+        if nxt is not None and board.get_state(nxt) == CellState.FIRE:
+            flashover(board, pos, event)
+            return
+
+
 def flashover(board: Board, pos: tuple[int, int], event: FireEvent):
     """Propaga el fuego por contagio: cualquier celda con Humo que esté
     pegada (adyacente, sin pared/puerta cerrada de por medio) a una
@@ -205,9 +221,13 @@ def replenish_poi(
         if kind is None:
             break  # ya no quedan marcadores en la caja
 
-        board.add_poi(pos, kind)
+        poi = board.add_poi(pos, kind)
         placed.append(pos)
         if pos in firefighter_positions:
+            # Cayó justo debajo de un bombero: se revela de inmediato y
+            # se marca como "spawned on agent" para que el modelo se lo
+            # adjudique a ese bombero (único caso de claim-on-contact).
+            poi.spawned_on_agent = True
             board.reveal_poi(pos)
 
     return placed

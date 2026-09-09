@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 import networkx as nx
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .agents import Firefighter
 
 BOARD_HEIGHT = 8
 BOARD_WIDTH = 10
@@ -33,10 +39,15 @@ class POI:
     fijada desde que se coloca pero oculta a los jugadores hasta que
     `revealed` sea True (igual que el juego físico: el reverso del
     marcador ya viene impreso desde la preparación, y solo se voltea
-    cuando un bombero camina sobre él)."""
+    cuando un bombero camina sobre él). Además lleva la propiedad del
+    reclamo: `claim` apunta al bombero que se lo adjudicó (None si nadie
+    lo posee), y `spawned_on_agent` marca si apareció justo debajo de un
+    bombero en la fase Reponer POI (el único caso de claim-on-contact)."""
     pos: tuple[int, int]
     kind: PoiState
     revealed: bool = False
+    claim: Firefighter | None = None
+    spawned_on_agent: bool = False
 
 
 class Direction(Enum):
