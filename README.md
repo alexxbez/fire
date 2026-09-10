@@ -123,3 +123,7 @@ Sin embargo, cabe recalcar que las estrategias, algoritmos, y lógica principal 
 **`analyze_results.py`**
 
 - Este archivo fue mayormente creado por IA. Toma los csvs generados y realiza un análisis, creando gráficas también.
+
+**`README.md`**
+
+- La IA se utilizó como ayuda para redactar este README.
