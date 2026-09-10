@@ -251,6 +251,8 @@ class Firefighter(Agent):
         target = self.pos if direction is None else self._neighbor(direction)
         if target is None:
             return False
+        if direction is not None and not self.board.is_passable(self.pos, direction):
+            return False
         state = self.board.get_state(target)
         if state == CellState.SMOKE:
             if not self._spend(EXTINGUISH_SMOKE_COST):
@@ -312,13 +314,13 @@ class Firefighter(Agent):
             # Un rescatista no pierde tiempo apagando fuegos ajenos fuera
             # de su ruta: solo limpia su propia celda y el fuego que le
             # bloquea el paso (eso ya lo hace el paso por el camino).
-            if self.role == SUPPRESSION_ROLE:
-                if self.extinguish(None):
-                    continue
-                if self._extinguish_fire_a_neighbor():
-                    continue
-                if self._extinguish_smoke_a_neighbor():
-                    continue
+            # if self.role == SUPPRESSION_ROLE:
+            if self.extinguish(None):
+                continue
+            if self._extinguish_fire_a_neighbor():
+                continue
+            if self._extinguish_smoke_a_neighbor():
+                continue
 
             poi_here = self.board.poi_at(self.pos)
             if poi_here is not None and not poi_here.revealed:

@@ -113,23 +113,24 @@ class RandomFirefighter(Firefighter):
         return False
 
     def _try_action_in_direction(self, direction: Direction, carry: bool = False) -> bool:
-        """Intenta moverse en una dirección dada. Si hay fuego/humo, lo
-        apaga; si hay puerta cerrada, la abre; si es transitable, se mueve."""
+        """Intenta moverse en una dirección dada. Si hay puerta cerrada, la
+        abre; si hay fuego/humo, lo apaga; si es transitable, se mueve."""
         n = self._neighbor(direction)
         if n is None:
+            return False
+
+        # Abrir puerta cerrada antes de mirar la celda de al lado: a través
+        # de una puerta cerrada no se puede apagar ni moverse.
+        wall = self.board.get_wall(self.pos, direction)
+        if wall == WallState.DOOR_CLOSE:
+            if self.open_close_door(direction):
+                return True
             return False
 
         # Apagar fuego/humo en la celda destino
         state = self.board.get_state(n)
         if state in (CellState.FIRE, CellState.SMOKE):
             if self.extinguish(direction):
-                return True
-            return False
-
-        # Abrir puerta cerrada
-        wall = self.board.get_wall(self.pos, direction)
-        if wall == WallState.DOOR_CLOSE:
-            if self.open_close_door(direction):
                 return True
             return False
 

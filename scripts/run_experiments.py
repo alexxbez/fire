@@ -1,23 +1,22 @@
 #!/usr/bin/env python
-"""Corre la simulacion N veces y exporta dos CSV:
+"""Corre la simulacion N veces para CADA tipo de agente (smart y random) y
+exporta 4 CSVs:
 
-  - `--out`: dataset completo (una fila por turno) con TODAS las columnas
-    que ya produce el FireDataCollector (celdas, paredes, bomberos, POIs,
-    acciones, fuego), con la columna `simulation_id` para distinguir cada
-    partida.
-  - `--summary-out`: un resumen compacto de una fila por partida, con el
-    desenlace, la causa de la derrota, la timelina clave (primer perdida,
-    turno de colapso) y el desglose del dano (propio hachazo vs fuego).
+  - data/{agent}_full.csv:    dataset completo (una fila por turno)
+  - data/{agent}_summary.csv: resumen compacto (una fila por partida)
 
-El inicial POI draw es determinista por seed (mesa crea un RNG sin semilla
-por defecto), y el RNG de la simulacion se siembra con `--seed-base + i`,
-asi cada corrida es reproducible.
+Ambos agentes usan las mismas semillas para que las comparaciones sean
+pareadas: mismas configuraciones de tablero/fuego/POI, distinto comportamiento.
+
+Uso:
+    python scripts/run_experiments.py [--sims N] [--seed-base N] [--data-dir DIR]
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 import random
@@ -35,9 +34,15 @@ from fire.model import (  # noqa: E402
     VICTIMS_LOST_TO_LOSE,
     VICTIMS_TO_WIN,
 )
+from fire.random_agent import RandomFirefighter  # noqa: E402
+
+AGENTS = [
+    ("smart", None),
+    ("random", RandomFirefighter),
+]
 
 
-def make_model(seed: int) -> FirefighterModel:
+def make_model(seed: int, agent_cls=None) -> FirefighterModel:
     """Modelo con inicial POI draw determinista + RNG sembrado.
 
     FirefighterModel.__init__ saca los POIs iniciales del RNG sin semilla
@@ -58,7 +63,7 @@ def make_model(seed: int) -> FirefighterModel:
     orig_draw = FirefighterModel._draw_poi_kind
     FirefighterModel._draw_poi_kind = draw
     try:
-        model = FirefighterModel()
+        model = FirefighterModel(agent_cls=agent_cls)
     finally:
         FirefighterModel._draw_poi_kind = orig_draw
     model.rng = np.random.default_rng(seed)
@@ -77,7 +82,7 @@ def classify(model: FirefighterModel) -> str:
     return "other"
 
 
-def summarize(model: FirefighterModel, sim_id: int) -> dict:
+def summarize(model: FirefighterModel, sim_id: int, agent_type: str) -> dict:
     """Deriva la fila de resumen de una partida ya terminada, a partir del
     estado final del modelo y de las filas por-turno ya recolectadas."""
     rows = model.collector.rows
@@ -117,6 +122,7 @@ def summarize(model: FirefighterModel, sim_id: int) -> dict:
     role_mix = Counter(f.role for f in model.firefighters)
 
     return {
+        "agent_type": agent_type,
         "simulation_id": sim_id,
         "status": model.status,
         "cause": classify(model),
@@ -150,24 +156,26 @@ def summarize(model: FirefighterModel, sim_id: int) -> dict:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sims", type=int, default=1000, help="numero de partidas (default 1000)")
-    parser.add_argument("--out", default="data/batch_full.csv", help="CSV por-turno completo")
-    parser.add_argument("--summary-out", default="data/batch_summary.csv", help="CSV resumen por partida")
-    parser.add_argument("--seed-base", type=int, default=random.randint(1, 100), help="offset de semilla (default 1000)")
-    parser.add_argument("--quiet", action="store_true", help="no imprimir progreso")
-    args = parser.parse_args()
-
+def run_agent_batch(
+    agent_label: str,
+    agent_cls,
+    sims: int,
+    seed_base: int,
+    data_dir: str,
+    quiet: bool,
+) -> None:
+    """Run N simulations for a single agent type and write its CSVs."""
     t0 = time.time()
     summary_rows: list[dict] = []
-    n_written = 0
 
-    with open(args.out, "w", newline="", encoding="utf-8") as csvf:
+    out_path = os.path.join(data_dir, f"batch_{agent_label}_full.csv")
+    summary_path = os.path.join(data_dir, f"batch_{agent_label}_summary.csv")
+
+    with open(out_path, "w", newline="", encoding="utf-8") as csvf:
         writer = None
-        for i in range(args.sims):
-            seed = args.seed_base + i
-            model = make_model(seed)
+        for i in range(sims):
+            seed = seed_base + i
+            model = make_model(seed, agent_cls=agent_cls)
             model.collector.simulation_id = i
             model.run()
 
@@ -177,29 +185,49 @@ def main() -> None:
                 writer.writeheader()
             for r in rows:
                 writer.writerow(r)
-            summary_rows.append(summarize(model, i))
-            n_written += 1
+            summary_rows.append(summarize(model, i, agent_label))
+            n_written = i + 1
 
-            if not args.quiet and (i % 100 == 99 or i == args.sims - 1):
+            if not quiet and (i % 100 == 99 or i == sims - 1):
                 elapsed = time.time() - t0
                 print(
-                    f"[{i+1:4d}/{args.sims}] {elapsed:.1f}s | "
-                    f"ej. turnos {model.turn:3d} rescued {model.victims_rescued} "
+                    f"  [{agent_label}] [{i+1:4d}/{sims}] {elapsed:.1f}s | "
+                    f"turnos {model.turn:3d} rescued {model.victims_rescued} "
                     f"lost {model.victims_lost} dmg {model.damage_total}",
                     flush=True,
                 )
 
-    with open(args.summary_out, "w", newline="", encoding="utf-8") as f:
+    with open(summary_path, "w", newline="", encoding="utf-8") as f:
         swriter = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
         swriter.writeheader()
         swriter.writerows(summary_rows)
 
     taken = time.time() - t0
     statuses = Counter(r["status"] for r in summary_rows)
-    print(f"listo: {n_written} partidas en {taken:.1f}s")
-    print(f"  por-turno   -> {args.out}")
-    print(f"  resumen     -> {args.summary_out}")
-    print(f"  desenlaces: {dict(statuses)}")
+    print(f"  [{agent_label}] listo: {n_written} partidas en {taken:.1f}s")
+    print(f"    por-turno   -> {out_path}")
+    print(f"    resumen     -> {summary_path}")
+    print(f"    desenlaces: {dict(statuses)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sims", type=int, default=1000, help="numero de partidas por agente (default 1000)")
+    parser.add_argument("--data-dir", default="data", help="directorio de salida (default data/)")
+    parser.add_argument("--seed-base", type=int, default=random.randint(1, 100), help="offset de semilla")
+    parser.add_argument("--quiet", action="store_true", help="no imprimir progreso")
+    args = parser.parse_args()
+
+    os.makedirs(args.data_dir, exist_ok=True)
+
+    t0 = time.time()
+    for agent_label, agent_cls in AGENTS:
+        if not args.quiet:
+            print(f"\n--- {agent_label} ---", flush=True)
+        run_agent_batch(agent_label, agent_cls, args.sims, args.seed_base, args.data_dir, args.quiet)
+
+    taken = time.time() - t0
+    print(f"\ntotal: {args.sims} partidas x {len(AGENTS)} agentes en {taken:.1f}s")
 
 
 if __name__ == "__main__":
