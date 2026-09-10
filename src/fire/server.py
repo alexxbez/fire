@@ -1,7 +1,7 @@
 """Servidor Flask mínimo con un endpoint `/run-sim`.
 
-Corre una partida completa y devuelve la serie de snapshots JSON
-(documentada en `docs/json_schema.md`): turno 0 = estado inicial, turnos
+Corre una partida completa y devuelve la serie de snapshots JSON:
+turno 0 = estado inicial, turnos
 1..N = estado tras la ronda. Sin parámetros usa el RNG por defecto de
 mesa; con `?seed=N` reproduce exactamente la partida de `scripts/
 run_experiments.py` con ese seed.
